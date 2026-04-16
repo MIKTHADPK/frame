@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mobile Generator + Preview</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
+    <style>
+        /* Base Styles */
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 15px; background-color: #f0f2f5; margin: 0; }
+        
+        /* Container */
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+
+        /* Inputs */
+        .form-group { margin-bottom: 15px; }
+        label { font-weight: 600; display: block; margin-bottom: 8px; color: #333; font-size: 14px; }
+        input, select { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; box-sizing: border-box; background: #fff; }
+        input:focus, select:focus { border-color: #007bff; outline: none; }
+
+        /* Buttons */
+        button { width: 100%; padding: 14px; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: background 0.2s; }
+        #downloadBtn { background-color: #007bff; color: white; margin-top: 10px; }
+        #downloadBtn:active { background-color: #0056b3; }
+
+        /* PREVIEW SECTION (New) */
+        .preview-container {
+            margin-top: 30px;
+            text-align: center;
+            border-top: 2px dashed #ddd;
+            padding-top: 20px;
+        }
+        .preview-label { font-size: 14px; color: #666; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; }
+        #live-preview-img {
+            width: 100%;
+            max-width: 400px; /* Limits size on desktop */
+            border: 1px solid #ccc;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border-radius: 4px;
+            display: block;
+            margin: 0 auto;
+            min-height: 200px;
+            background: #f9f9f9;
+        }
+
+        /* Cropping Modal */
+        .crop-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 9999; flex-direction: column; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
+        .crop-box { background: black; width: 100%; max-width: 500px; max-height: 70vh; overflow: hidden; border-radius: 8px; }
+        #crop-image { display: block; max-width: 100%; }
+        .crop-btn-row { margin-top: 20px; display: flex; gap: 10px; width: 100%; max-width: 500px; }
+        .btn-save { background: #28a745; color: white; flex: 1; }
+        .btn-cancel { background: #dc3545; color: white; flex: 1; }
+
+        /* Hidden Export Area */
+        #export-area { width: 1080px; background: white; position: absolute; left: -9999px; top: 0; }
+        .header-img img { width: 100%; display: block; }
+        .info-bar { border-top: 3px solid black; border-bottom: 3px solid black; padding: 12px 0; margin: 10px 0; text-align: center; font-size: 28px; font-weight: bold; font-family: Arial, sans-serif; }
+        .main-content img { width: 100%; display: block; }
+        #pdf-canvas { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2 style="text-align:center; margin-top:0;">Generator</h2>
+    
+    <div class="form-group">
+        <label>1. Select Header</label>
+        <select id="headerSelect" onchange="updatePreview()">
+            <option value="news_heads/siraj.jpg">Siraj Header</option>
+            <option value="news_heads/other_news.jpg">Other News Header</option>
+            <option value="news_heads/default.jpg">Default Header</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>2. Date</label>
+        <input type="date" id="dateInput" onchange="updatePreview()">
+    </div>
+
+    <div class="form-group">
+        <label>3. Page Number</label>
+        <input type="number" id="pageInput" value="02" inputmode="numeric" oninput="updatePreview()">
+    </div>
+
+    <div class="form-group">
+        <label>4. Upload File (PDF / Image)</label>
+        <input type="file" id="fileInput" accept="image/*,application/pdf">
+    </div>
+
+    <button id="downloadBtn">DOWNLOAD HIGH RES JPG</button>
+
+    <!-- LIVE PREVIEW AREA -->
+    <div class="preview-container">
+        <div class="preview-label">Live Preview</div>
+        <img id="live-preview-img" src="" alt="Preview will appear here">
+    </div>
+</div>
+
+<!-- Modal -->
+<div class="crop-modal" id="cropModal">
+    <div class="crop-box"><img id="crop-image"></div>
+    <div class="crop-btn-row">
+        <button class="btn-save" id="applyCrop">Crop & Preview</button>
+        <button class="btn-cancel" onclick="location.reload()">Cancel</button>
+    </div>
+</div>
+
+<canvas id="pdf-canvas"></canvas>
+
+<!-- Hidden Logic Area -->
+<div id="export-area">
+    <div class="header-img"><img id="finalHeader" src=""></div>
+    <div class="info-bar" id="finalInfo"></div>
+    <div class="main-content"><img id="finalContent" src=""></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+<script>
+    const pdfjsLib = window['pdfjs-dist/build/pdf'];
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
+    const fileInput = document.getElementById('fileInput');
+    const cropModal = document.getElementById('cropModal');
+    const cropImage = document.getElementById('crop-image');
+    const dateInput = document.getElementById('dateInput');
+    const finalContent = document.getElementById('finalContent');
+    const headerSelect = document.getElementById('headerSelect');
+    const pageInput = document.getElementById('pageInput');
+    const previewImg = document.getElementById('live-preview-img');
+    let cropper;
+
+    // Initial Setup
+    dateInput.valueAsDate = new Date();
+    
+    // Wait for page to load then run first preview
+    window.onload = () => {
+        // Small delay to ensure default images load
+        setTimeout(updatePreview, 500);
+    };
+
+    // 1. File Upload Logic
+    fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (file.type === "application/pdf") {
+            const reader = new FileReader();
+            reader.onload = async function() {
+                const typedarray = new Uint8Array(this.result);
+                const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                const page = await pdf.getPage(1);
+                const viewport = page.getViewport({ scale: 2.0 });
+                const canvas = document.getElementById('pdf-canvas');
+                const context = canvas.getContext('2d');
+                canvas.height = viewport.height; canvas.width = viewport.width;
+                await page.render({ canvasContext: context, viewport: viewport }).promise;
+                initCropper(canvas.toDataURL('image/jpeg'));
+            };
+            reader.readAsArrayBuffer(file);
+        } else {
+            const reader = new FileReader();
+            reader.onload = (event) => initCropper(event.target.result);
+            reader.readAsDataURL(file);
+        }
+    });
+
+    function initCropper(src) {
+        cropImage.src = src;
+        cropModal.style.display = 'flex';
+        if (cropper) cropper.destroy();
+        cropper = new Cropper(cropImage, { viewMode: 1, autoCropArea: 0.9, dragMode: 'move' });
+    }
+
+    document.getElementById('applyCrop').addEventListener('click', () => {
+        const canvas = cropper.getCroppedCanvas({ width: 1080 });
+        finalContent.src = canvas.toDataURL('image/jpeg');
+        cropModal.style.display = 'none';
+        // Update preview immediately after cropping
+        setTimeout(updatePreview, 100);
+    });
+
+    // 2. Preview Logic
+    function updatePreview() {
+        const rawDate = dateInput.value.split('-');
+        const formattedDate = `${rawDate[2]}/${rawDate[1]}/${rawDate[0]}`;
+        
+        // Update Hidden DOM
+        document.getElementById('finalHeader').src = headerSelect.value;
+        document.getElementById('finalInfo').innerText = `${formattedDate} | KOCHI | PAGE ${pageInput.value}`;
+
+        // Generate Preview Snapshot (Low Quality for Speed)
+        // We use a timeout to ensure the Header Image src update is caught
+        setTimeout(() => {
+            html2canvas(document.getElementById("export-area"), { 
+                width: 1080, 
+                scale: 0.3, // 30% scale is enough for phone preview
+                useCORS: true,
+                windowWidth: 1080 
+            }).then(canvas => {
+                previewImg.src = canvas.toDataURL('image/jpeg');
+            });
+        }, 200); 
+    }
+
+    // 3. Download Logic (High Quality)
+    document.getElementById('downloadBtn').addEventListener('click', () => {
+        if (!finalContent.src && !confirm("No content cropped. Download anyway?")) return;
+        
+        // Force update one last time
+        updatePreview();
+
+        setTimeout(() => {
+            html2canvas(document.getElementById("export-area"), { 
+                width: 1080, 
+                scale: 1, // Full 100% Quality
+                useCORS: true,
+                windowWidth: 1080
+            }).then(canvas => {
+                const link = document.createElement('a');
+                link.download = `Page_${pageInput.value}.jpg`;
+                link.href = canvas.toDataURL('image/jpeg', 0.95);
+                link.click();
+            });
+        }, 500);
+    });
+</script>
+</body>
+</html>
